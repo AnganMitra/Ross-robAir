@@ -9,7 +9,7 @@
 #include <tf/transform_datatypes.h>
 
 using namespace std;
-
+#define translation_threshold 0.5
 class translation_action {
 private:
 
@@ -28,6 +28,12 @@ private:
 
     float translation_to_do, translation_done;
     int cond_translation;
+    float kp ;
+    float ki ;
+    float kd ;
+    float ep ;
+    float ei ;
+    float ed ;
 
 public:
 
@@ -45,6 +51,12 @@ translation_action() {
     pub_translation_done = n.advertise<std_msgs::Float32>("translation_done", 1);
     sub_translation_to_do = n.subscribe("translation_to_do", 1, &translation_action::translation_to_doCallback, this);//this is the translation that has to be performed
 
+    kp = 0.5;
+    ki = 0.001;
+    kd = 0.01;
+    ep = 0;
+    ei = 0;
+    ed = 0;
 }
 
 void odomCallback(const nav_msgs::Odometry::ConstPtr& o) {
@@ -65,30 +77,37 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& o) {
 
         ROS_INFO("(translation_node) translation_done: %f, translation_to_do: %f", translation_done, translation_to_do);
 
-        /*if ( rotation_to_do has not been reached  ) {
-                 *
-                 * float kp, ep, ki, ei, kd, ed;
-                 *
-                 * implementation of a PID controller
-                 *
-                    ep = (translation_to_do - translation_done);//the current error is the difference between the translation_to_do (ie, the postion to reach) and the translation_done (ie, the current position)
+        if ( (translation_to_do - translation_done) > translation_threshold || (translation_to_do - translation_done) < -translation_threshold ) {
+                         
+             
+             // implementation of a PID controller
+          
+            ed = ed - (translation_to_do - translation_done);//the current error is the difference between the rotation_to_do (ie, the angle to reach) and the rotation_done (ie, the current angle)
+            
+            ep = (translation_to_do - translation_done);//the current error is the difference between the rotation_to_do (ie, the angle to reach) and the rotation_done (ie, the current angle)
+            ei +=ep;
+            twist.linear.x = kp * ep + ki * ei + kd * ed;
 
-                    twist.linear.x *= kp * ep + ki * ei + kd * ed;;
             pub_cmd_vel.publish(twist);
+            translation_to_do = 0;
+            translation_done = 0;
+
+
         }
         else {
-*/   
-	}
-            cond_translation = 0;
-            ROS_INFO("(translation_node) translation_to_do: %f", translation_to_do);
-            ROS_INFO("(translation_node) translation_done: %f", translation_done);
 
+            cond_translation = 0;
+           // ROS_INFO("(translation_node) translation_to_do: %f", translation_to_do);
+           // ROS_INFO("(translation_node) translation_done: %f", translation_done);
+            ep = 0;
+            ei = 0;
+            ed = 0;
             std_msgs::Float32 msg_translation_done;
             msg_translation_done.data = translation_done;
             pub_translation_done.publish(msg_translation_done);//we sent the translation_done to decision_node;
-  //      }
+       }
             //getchar();
-   // }
+    }
 
 }
 
@@ -103,13 +122,17 @@ void translation_to_doCallback(const std_msgs::Float32::ConstPtr & r) {
     //getchar();
 
     cond_translation = 1;
-    translation_done = 0;
+    translation_done = 0.0;
+
+    std_msgs::Float32 msg_translation_done;
+    msg_translation_done.data = translation_done;
+    pub_translation_done.publish(msg_translation_done);
 
     //reset odometry
     geometry_msgs::Point p;
-    p.x = 0;
-    p.y = 0;
-    p.z = 0;
+    p.x = 0.0;
+    p.y = 0.0;
+    p.z = 0.0;
     pub_change_odometry.publish(p);
     ros::Duration(0.5).sleep();
 

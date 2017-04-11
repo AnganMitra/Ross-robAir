@@ -14,8 +14,11 @@
 #include "std_msgs/Float32.h"
 
 
-#define threshold 0.1
- 
+#define cluster_threshold 0.15
+#define static_threshold 0.15
+#define dynamic_threshold 0.8
+#define least_leg_size 0.03
+#define biggest_leg_size 0.2
 using namespace std;
 
 class person_detector {
@@ -78,6 +81,7 @@ person_detector() {
 float distancePoints(geometry_msgs::Point pa, geometry_msgs::Point pb) {
 
     return sqrt(pow((pa.x-pb.x),2.0) + pow((pa.y-pb.y),2.0));
+    // return abs(pa.x-pb.x) + abs(pa.y-pb.y);
 
 }
 
@@ -85,7 +89,7 @@ float distancePoints(geometry_msgs::Point pa, geometry_msgs::Point pb) {
 void populateMarkerReference() {
 
     visualization_msgs::Marker references;
-
+	
     references.header.frame_id = "laser";
     references.header.stamp = ros::Time::now();
     references.ns = "person_detector";
@@ -203,7 +207,7 @@ void detect_motion() {
     ROS_INFO("detect_motion");
     for(int loop = 0; loop<1000; loop++)
     {
-        if (abs(range[loop]- background[loop]) > threshold)
+        if (abs(range[loop]- background[loop]) > static_threshold)
         {
             detection[loop] = 1;
         }
@@ -211,7 +215,7 @@ void detect_motion() {
         {
             detection[loop]=0;
         }
-       // background[loop]=range[loop];
+       //background[loop]=range[loop];
     }
     //populateMarkerTopic(nb_beams, current_scan, current_colors);
     //getchar();
@@ -225,30 +229,35 @@ void clustering() {
 
     int start_cluster, end_cluster;// to store the start and end of each cluster
     ROS_INFO("clustering");
-    int nb_dynamic = 0;// to store the number of "dynamic hits" in the current cluster
+    float nb_dynamic = 0;// to store the number of "dynamic hits" in the current cluster
     nb_cluster = 0;
     start_cluster= 0;
     end_cluster=0;
     geometry_msgs::Point temp_cog;
     temp_cog.x = 0;
     temp_cog.y = 0;
-
+	cluster[0] = nb_cluster;
+	temp_cog.x = current_scan[0].x ;
+    temp_cog.y = current_scan[0].y ;
+	int points = 0;
     for(int loop = 1; loop <1000 ; loop++)
     {
     	
-    	if ( distancePoints(current_scan[loop], current_scan[loop-1] ) > threshold  || loop == 1000 - 1 )
+    	if (  distancePoints(current_scan[loop], current_scan[loop-1] ) > cluster_threshold  || loop == 1000 - 1  )
 		{
-			end_cluster = loop-1;
-			if (loop == 1000 -1 )
-				end_cluster = loop;			
-			size_cluster[nb_cluster] =  distancePoints(current_scan[end_cluster], current_scan[start_cluster]);
-			//ROS_INFO("cluster distance = %d %d %f %d", end_cluster,start_cluster, size_cluster[nb_cluster], nb_cluster);
-			center_cluster[nb_cluster].x = temp_cog.x / max(1, end_cluster - start_cluster);
-			center_cluster[nb_cluster].y = temp_cog.y / max(1, end_cluster - start_cluster);
-			dynamic_cluster[nb_cluster] = nb_dynamic / max(1, end_cluster - start_cluster);
+			
+			
+			center_cluster[nb_cluster].x = temp_cog.x / max(1 , points);
+			center_cluster[nb_cluster].y = temp_cog.y / max(1 , points);
+			dynamic_cluster[nb_cluster] = nb_dynamic / max(1 , points);
+			
 			nb_cluster++;
-			cluster[loop] = nb_cluster;			
-			start_cluster = loop;
+			points = 1;
+			temp_cog.x = current_scan[loop].x ;
+    		temp_cog.y = current_scan[loop].y ;
+			size_cluster[nb_cluster] = 0;	
+			cluster[loop] = nb_cluster;				
+
 			nb_dynamic = 0;
 			if(detection[loop] == 1)
     			nb_dynamic += 1;
@@ -263,9 +272,17 @@ void clustering() {
     		temp_cog.y += current_scan[loop].y ;
     		if(detection[loop] == 1)
     			nb_dynamic += 1;
+    		size_cluster[nb_cluster] +=  distancePoints(current_scan[loop], current_scan[loop -1]);
+    		points += 1;
     	}
+    	
+    	
     }
-
+	/*for(int loop = 0; loop <nb_cluster ; loop++)
+	{
+		ROS_INFO("dynamic Cluster %f %f ", dynamic_cluster[loop], size_cluster[loop]);
+	}
+	*/
     //getchar();
 
 }
@@ -281,8 +298,8 @@ void search_moving_leg() {
     //    getchar();
     for(int loop= 0; loop < nb_cluster; loop ++)
     {    	
-    	//ROS_INFO("dynamic Cluster %f", dynamic_cluster[loop]);
-    	if (dynamic_cluster[loop] >= 0.75 && size_cluster[loop] >=  0&& size_cluster[loop]<= 25 )
+    	//ROS_INFO("Cluster size %f dynamic size %f", size_cluster[loop], dynamic_cluster[loop]);
+    	if (dynamic_cluster[loop] >=dynamic_threshold && size_cluster[loop] >=  least_leg_size && size_cluster[loop]<= biggest_leg_size )
     	{
     		//ROS_INFO("Moving Leg Detected");
     		moving_leg[nb_moving_leg] = loop;
@@ -341,9 +358,10 @@ void choose_goal() {
     {
     	goal_to_reach.x = position_moving_person[0].x;
     	goal_to_reach.y = position_moving_person[0].y;
-
+        pub_goal_to_reach.publish(goal_to_reach);
+        //exit(0);
     }
-    pub_goal_to_reach.publish(goal_to_reach);
+        
 }
 
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
@@ -420,6 +438,9 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 }
 
 void goal_reachedCallback(const geometry_msgs::Point::ConstPtr& g) {
+    first_scan = 1;
+    goal_reached = 1;
+    store_background();
 
 }
 
