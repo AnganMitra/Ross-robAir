@@ -14,10 +14,10 @@
 #include "std_msgs/Float32.h"
 
 
-#define cluster_threshold 0.15
-#define static_threshold 0.15
+#define cluster_threshold 0.13
+#define static_threshold 0.1
 #define dynamic_threshold 0.8
-#define least_leg_size 0.03
+#define least_leg_size 0.08
 #define biggest_leg_size 0.2
 #define timeout 5
 using namespace std;
@@ -60,7 +60,11 @@ private:
     geometry_msgs::Point position_moving_person[1000];
 
     int goal_reached;
-    int timestamp_count;
+    geometry_msgs::Point tracked;
+    int nb_tracking;
+    geometry_msgs::Point goal_to_reach;
+
+    float u,a,e,r,k,o,q;  // kalman filter
 
 public:
 
@@ -76,7 +80,16 @@ person_tracker() {
 
     goal_reached = 1;
     first_scan = 1;
-    timestamp_count = 0;
+    nb_tracking = 0;
+    goal_to_reach.x = 0;
+    goal_to_reach.y = 0;
+    r = 2.0;
+    q = 2.0;
+    u = 0.30;
+    e = 2.0;
+    a = 2.5;
+
+
 
 }
 
@@ -196,7 +209,7 @@ void populateMarkerTopic(int nb_beams, geometry_msgs::Point *current_scan, std_m
 void store_background() {
 // store all the hits of the laser in the background table
 
-    ROS_INFO("store_background");
+    /*ROS_INFO("store_background");*/
     for(int loop = 0; loop< 1000; loop++)
     {
         background[loop]= range[loop];
@@ -207,7 +220,7 @@ void store_background() {
 void detect_motion() {
 // for each hit, compare the current range with the background to detect motion
 
-    ROS_INFO("detect_motion");
+    /*ROS_INFO("detect_motion");*/
     for(int loop = 0; loop<1000; loop++)
     {
         if (abs(range[loop]- background[loop]) > static_threshold)
@@ -231,7 +244,7 @@ void clustering() {
 //else we start a new cluster
 
     int start_cluster, end_cluster;// to store the start and end of each cluster
-    ROS_INFO("clustering");
+    /*ROS_INFO("clustering");*/
     float nb_dynamic = 0;// to store the number of "dynamic hits" in the current cluster
     nb_cluster = 0;
     start_cluster= 0;
@@ -249,7 +262,6 @@ void clustering() {
     	if (  distancePoints(current_scan[loop], current_scan[loop-1] ) > cluster_threshold  || loop == 1000 - 1  )
 		{
 			
-			
 			center_cluster[nb_cluster].x = temp_cog.x / max(1 , points);
 			center_cluster[nb_cluster].y = temp_cog.y / max(1 , points);
 			dynamic_cluster[nb_cluster] = nb_dynamic / max(1 , points);
@@ -264,7 +276,6 @@ void clustering() {
 			nb_dynamic = 0;
 			if(detection[loop] == 1)
     			nb_dynamic += 1;
-
 
 		}
     	else
@@ -281,19 +292,14 @@ void clustering() {
     	
     	
     }
-	/*for(int loop = 0; loop <nb_cluster ; loop++)
-	{
-		ROS_INFO("dynamic Cluster %f %f ", dynamic_cluster[loop], size_cluster[loop]);
-	}
-	*/
-    //getchar();
+
 
 }
 
 
 void search_moving_leg() {
 
-    ROS_INFO("search_moving_leg");
+    /*ROS_INFO("search_moving_leg");*/
     nb_moving_leg = 0;
 
     //populateMarkerTopic(nb_beams, current_scan, current_colors);
@@ -310,18 +316,17 @@ void search_moving_leg() {
 
     	}	    	    
     }
-    ROS_INFO("moving leg detected %d", nb_moving_leg);
-
+    /*ROS_INFO("moving leg detected %d", nb_moving_leg);
+*/
 }
 
 void search_moving_person() {
 
-    ROS_INFO("search_moving_person");
+    /*ROS_INFO("search_moving_person");*/
     nb_moving_person = 0;
 
     populateMarkerTopic(nb_beams, current_scan, current_colors);
-    if ( nb_moving_person > 0 )
-        getchar();
+    
 
     int first_leg_cluster;
     int first_leg_extreme;
@@ -333,8 +338,8 @@ void search_moving_person() {
     {
     	first_leg_extreme = moving_leg[loop];
     	second_leg_extreme = moving_leg[loop+1];
-    	//ROS_INFO("%d %d hi", first_leg_extreme, second_leg_extreme);
-    	if (distancePoints(center_cluster[second_leg_extreme], center_cluster[first_leg_extreme]) < 25)
+    	
+    	if (distancePoints(center_cluster[second_leg_extreme], center_cluster[first_leg_extreme]) < 0.25)
     	{	
 
     		position_moving_person[nb_moving_person].x = ( center_cluster[first_leg_extreme].x + center_cluster[second_leg_extreme].x )/2;
@@ -346,30 +351,63 @@ void search_moving_person() {
     	
     } 
 
-    ROS_INFO("Number of Moving Person Detected %d", nb_moving_person);
+    /*ROS_INFO("Number of Moving Person Detected %d", nb_moving_person);*/
 }
+
 
 void choose_goal() {
 
-    ROS_INFO("choose_goal");
 
-    //populateMarkerTopic(nb_beams, current_scan, current_colors);
-    //getchar();
-    geometry_msgs::Point goal_to_reach;
-    
-    if(nb_moving_person == 1)
-    {
-		if(timestamp_count < timeout)
-		{
-			timestamp_count ++;
-			goal_reached = 1;
-			ros::Duration(0.1).sleep();
-			store_background();
-			return;
-		}
-    	goal_to_reach.x = position_moving_person[0].x;
-    	goal_to_reach.y = position_moving_person[0].y;
-        pub_goal_to_reach.publish(goal_to_reach);
+    if(nb_moving_person == 1 )
+    { ROS_INFO("here");
+		
+        if(nb_tracking == 0)
+        {
+            tracked.x = position_moving_person[0].x;
+            tracked.y = position_moving_person[0].y;
+            u = tracked.y;
+        }
+        if (nb_tracking == 1)
+            a =  (position_moving_person[0].y - tracked.y)*1.5;
+
+        if(fabs((tracked.y - position_moving_person[0].y)) > 0.3)
+        {
+            nb_tracking = 0;
+            return;
+        }
+        else
+        {
+            tracked.x = position_moving_person[0].x;
+            tracked.y = position_moving_person[0].y;
+        }
+
+        o = position_moving_person[0].y;
+        u = u + a;
+        e = e + r ;
+        k = e/(e+q);
+        u = u + k*(o - u);
+        e = (1 - k)*e;
+
+        nb_tracking ++;
+        ROS_INFO("%d person in track, real y %f estimated y %f", nb_tracking, tracked.y , u);
+        //ros::Duration(0.1).sleep();
+        if(nb_tracking == timeout)
+        {
+            goal_to_reach.y = u;
+            //goal_to_reach.x = tracked.x;
+            goal_to_reach.x = tracked.x;
+            pub_goal_to_reach.publish(goal_to_reach);
+            ROS_INFO("Goal Published");
+            ros::Duration(0.1).sleep();
+            goal_reached = 0;
+            nb_tracking = 0;
+            r = 2.0;
+            q = 2.0;
+            u = 1.0;
+            e = 2.0;
+            a = 2.0;
+
+        }
         //exit(0);
     }
         
@@ -377,13 +415,19 @@ void choose_goal() {
 
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 
-    ROS_INFO("--Listening to scan:");
+    /*ROS_INFO("--Listening to scan:");
     ROS_INFO("goal_reached = %d", goal_reached);
-    ROS_INFO("first_scan = %d", first_scan);
+    ROS_INFO("first_scan = %d", first_scan);*/
 
     if ( goal_reached ) {
 
-        ROS_INFO("Timestamp: %d", scan->header.seq);
+
+// for person tracking 
+        goal_to_reach.x = 0;
+        goal_to_reach.y = 0;
+
+
+        /*ROS_INFO("Timestamp: %d", scan->header.seq);*/
 
         // store the important data related to laserscanner
         range_min = scan->range_min;
@@ -393,11 +437,11 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
         angle_inc = scan->angle_increment;
         nb_beams = ((-1 * angle_min) + angle_max)/angle_inc;
 
-        ROS_INFO("range_min, range_max: %f, %f", range_min, range_max);
+        /*ROS_INFO("range_min, range_max: %f, %f", range_min, range_max);
         ROS_INFO("angle_min: %f", angle_min*180/M_PI);
         ROS_INFO("angle_max: %f", angle_max*180/M_PI);
         ROS_INFO("angle_increment: %f", angle_inc*180/M_PI);
-        ROS_INFO("number_of_beams: %d", nb_beams);
+        ROS_INFO("number_of_beams: %d", nb_beams);*/
 
         // store the range and the coordinates in cartesian framework of each hit
         float beam_angle = angle_min;
@@ -437,7 +481,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 
         }
         else {
-
+            //nb_tracking = 0;
             detect_motion();
             clustering();
             search_moving_leg();
@@ -449,10 +493,10 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 }
 
 void goal_reachedCallback(const geometry_msgs::Point::ConstPtr& g) {
-    first_scan = 1;
+    first_scan = 0;
     goal_reached = 1;
     store_background();
-    timestamp_count = 0;
+    nb_tracking = 0;
 
 }
 

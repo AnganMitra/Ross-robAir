@@ -9,7 +9,7 @@
 #include <tf/transform_datatypes.h>
 
 using namespace std;
-#define translation_threshold 0.5
+#define translation_threshold 0.4
 class translation_action {
 private:
 
@@ -26,6 +26,9 @@ private:
     ros::Publisher pub_translation_done;
     ros::Subscriber sub_translation_to_do;
 
+    //communication with obstacle
+    ros::Subscriber sub_obstacle_float;
+
     float translation_to_do, translation_done;
     int cond_translation;
     float kp ;
@@ -34,6 +37,7 @@ private:
     float ep ;
     float ei ;
     float ed ;
+    float obstacle_float;
 
 public:
 
@@ -51,12 +55,16 @@ translation_action() {
     pub_translation_done = n.advertise<std_msgs::Float32>("translation_done", 1);
     sub_translation_to_do = n.subscribe("translation_to_do", 1, &translation_action::translation_to_doCallback, this);//this is the translation that has to be performed
 
+    ////communication with obstacle detection
+    sub_obstacle_float = n.subscribe("obstacle_float",1, &translation_action::ObstacleCallBack, this);
+
     kp = 0.5;
     ki = 0.001;
-    kd = 0.01;
+    kd = 0.00;
     ep = 0;
     ei = 0;
     ed = 0;
+    obstacle_float = 0.0;
 }
 
 void odomCallback(const nav_msgs::Odometry::ConstPtr& o) {
@@ -76,6 +84,11 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& o) {
         twist.angular.z = 0;
 
         ROS_INFO("(translation_node) translation_done: %f, translation_to_do: %f", translation_done, translation_to_do);
+        if(obstacle_float == 1.0){
+            translation_to_do = 0.0;
+            cond_translation = 0;
+
+        }
 
         if ( (translation_to_do - translation_done) > translation_threshold || (translation_to_do - translation_done) < -translation_threshold ) {
                          
@@ -89,9 +102,7 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& o) {
             twist.linear.x = kp * ep + ki * ei + kd * ed;
 
             pub_cmd_vel.publish(twist);
-            translation_to_do = 0;
-            translation_done = 0;
-
+            ros::Duration(0.5).sleep();
 
         }
         else {
@@ -118,10 +129,18 @@ void translation_to_doCallback(const std_msgs::Float32::ConstPtr & r) {
     //getchar();
     translation_to_do = r->data;
 
+    
+
     ROS_INFO("(translation_node) translation_to_do : %f", translation_to_do);
     //getchar();
 
     cond_translation = 1;
+
+    if(obstacle_float == 1.0){
+        translation_to_do = 0.0;
+        cond_translation = 0;
+
+    }
     translation_done = 0.0;
 
     std_msgs::Float32 msg_translation_done;
@@ -137,6 +156,13 @@ void translation_to_doCallback(const std_msgs::Float32::ConstPtr & r) {
     ros::Duration(0.5).sleep();
 
 }
+void ObstacleCallBack(const std_msgs::Float32::ConstPtr & a){
+
+    obstacle_float = a->data;
+    ROS_INFO("Obtacle in transrot %f ",obstacle_float);
+}
+
+
 
 };
 

@@ -182,7 +182,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 
         if ( !allocated ) {
             allocated = 1;
-
+            ROS_INFO("hi");
             scan1 = new float[number_beams];
             valid1 = new int[number_beams];
             associated1 = new int[number_beams];
@@ -203,7 +203,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 
         ROS_INFO("first scan before rotation");
         display_scan(0, 0);//we display scan1 before rotation
-        getchar();
+        //getchar();
 
         flag_scan++;
     }
@@ -222,27 +222,31 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
 
         // Discard values in ranges that are out of this boundary
         range_min = scan->range_min;
+        
         range_max = scan->range_max;
+      
         angle_min = scan->angle_min;
         angle_increment = scan->angle_increment;
-
         flag_scan = 0;
         // the mobile robot has performed a rotation
         // we store the current scan (ie, after rotation) in the table scan2
 
-        for (int i=0; i< number_beams; i++)
+        for (int i=0; i< number_beams; i++){
+            ROS_INFO("hi4");
+
             if ( scan->ranges[i] > range_min && scan->ranges[i] < range_max ) {
                 scan2[i] = scan->ranges[i];
                 valid2[i] = 1;
-                //ROS_INFO("scan2[%i] is valid", i);
+                ROS_INFO("scan2[%i] is valid", i);
             }
             else
                 valid2[i] = 0;
-        //getchar();
+        }
+        getchar();
 
         ROS_INFO("first scan before rotation + second scan");
         display_scan(0, 1);//we display scan1 before rotation
-        getchar();
+        //getchar();
 
         ROS_INFO("(rotation_matching) 2nd scan stored. Ready to compare the 2 scans");
         float current_rotation = angle_scan;
@@ -298,11 +302,15 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan) {
         }
 
         ROS_INFO("(scan matching) real_rotation_done = %f", -current_rotation*180/M_PI);
-        getchar();
+        //getchar();
         std_msgs::Float32 msg_real_rotation_done;
         //we sent the real_rotation_done to the rotation_action node
         // to complete
 		real_rotation_done = trigo_score > antitrigo_score ? trigo_rotation:antitrigo_rotation;
+		// publish real rotation done
+		msg_real_rotation_done.data = real_rotation_done;
+		pub_real_rotation_done.publish(msg_real_rotation_done);
+
     }
 
 }

@@ -25,6 +25,7 @@ private:
     ros::Publisher pub_translation_to_do;
     ros::Subscriber sub_translation_done;
 
+
     int rotation;//boolean to check if there is a rotation to do
     int translation;//boolean to check if there is a translation to do
 
@@ -58,7 +59,7 @@ void goal_to_reachCallback(const geometry_msgs::Point::ConstPtr& g) {
 // we decompose the goal_received in one rotation and one translation
 // and we perform the rotation first
 
-    if ( !rotation && !translation ) {//we do not accept new goal if the current goal is not reached
+    if ( !rotation ) {//we do not accept new goal if the current goal is not reached
         geometry_msgs::Point goal_to_reach;
 
         goal_to_reach.x = g->x;
